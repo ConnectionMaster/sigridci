@@ -3,27 +3,69 @@ Sigrid CI: Frequently Asked Questions
 
 ## Table of contents
 
-- [Which technologies do you support?](#which0technologies-do-you-support)
+### Usage questions
+
+- [Do you support pull request integration?](#do-you-support-pull-request-integration)
+- [Which technologies do you support?](#which-technologies-do-you-support)
+- [What is my system name?](#what-is-my-system-name)
+- [How to get a token and account?](#how-to-get-a-token-and-account)
+- [What target quality should we use?](#what-target-quality-should-we-use)
 - [Where can I find more information about your metrics?](#where-can-i-find-more-information-about-your-metrics)
-- [What is the maximum upload size?](#what-is-the-maximum-supported-upload-size)
+- [What is the maximum upload size?](#what-is-the-maximum-upload-size)
 - [Can I exclude certain files from being uploaded?](#can-i-exclude-certain-files-from-being-uploaded)
 - [Do Sigrid CI uploads get added to the Sigrid dashboard?](#do-sigrid-ci-uploads-get-added-to-the-sigrid-dashboard)
 - [What branch or commit does Sigrid CI compare against?](#what-branch-or-commit-does-sigrid-ci-compare-against)
 - [Why am I being penalized for problems that were already there?](#why-am-i-being-penalized-for-problems-that-were-already-there)
+- [Why are architecture metrics excluded from Sigrid CI?](#why-are-architecture-metrics-excluded-from-sigrid-ci)
 - [Should we fail the build if the Sigrid CI check fails?](#should-we-fail-the-build-if-the-sigrid-ci-check-fails)
 - [Why doesn't deleted code influence the rating?](#why-doesnt-deleted-code-influence-the-rating)
+- [We have a multi-repo project, can I still use Sigrid CI?](#we-have-a-multi-repo-project-can-i-still-use-sigrid-ci)
+- [Can I see which files are upload to Sigrid?](#can-i-see-which-files-are-uploaded-to-sigrid)
 
----
+### Common problems
 
-**Sigrid CI is currently in beta. Please [contact us](mailto:support@softwareimprovementgroup.com) if you have suggestions on how to make it more useful to you and your team.**
+- [What to do when the script does not work?](#what-to-do-when-the-script-does-not-work)
+- [I'm receiving an error message that certificate verification failed](#im-receiving-an-error-message-that-certificate-verification-failed)
 
----
+### Infrastructure and security questions
+
+- [How do you protect our source code?](#how-do-you-protect-our-source-code)
+- [Where is your service hosted?](#where-is-your-service-hosted)
+- [Do we need to update our firewall settings?](#do-we-need-to-update-our-firewall-settings)
+
+## Usage questions
+
+### Do you support pull request integration?
+
+Yes! There are basically two usage scenarios for Sigrid CI, and you would typically use them both.
+
+The first Sigrid CI use case is to *publish* your project's source code to Sigrid, which makes the analysis results accessible on [https://sigrid-says.com](https://sigrid-says.com). You would typically use this for your project's main branch, which can be `main`, `master`, or something project-specific. This is known as the *baseline version*.
+
+The second use case is to use Sigrid CI for feedback during code reviews on pull requests. This wil compare the contents of the pull request agains the baseline version, allowing you to identify improvement areas in the new and changed code.
+
+The [platform-specific documentation and examples](README.md) cover instructions for both scenarios. We generally recommend to use Sigrid CI for both scenarios, although it's also perfectly fine to use Sigrid CI for one scenario but not the other.
 
 ### Which technologies do you support?
 
 Sigrid supports almost 300 different technologies, so we are pretty confident that we are able to support most projects out-of-the-box. Moreover, we are constantly adding support for new technologies, and extending our support for existing ones. This even includes some pretty specific technologies with a focused group of target users, such as proprietary programming languages developed in-house at our clients. 
 
 If you are using a technology that you believe we do not support, please contact us using the contact information below, and we'll see what we can do.
+
+### What is my system name?
+
+You will find the system name in the url of the monitor in Sigrid. The structure is https://sigrid-says.com/customer/systemname/-/maintainability
+
+### How to get a token and account?
+
+Please send and email to support@softwareimprovementgroup.com and mention your name, your company and the system name(s) that you need a token for. We will send the account via mail and the token via sms.
+
+### What target quality should we use?
+
+Avoid setting an unreasonably high target quality level. While it seems appealing to be ambitious, this can be demotivating or frustrating to people, as it's not always possible to achieve such a high level in every single change.
+
+For systems implemented in modern technologies, we recommend a target quality level of 3.5 stars. This strikes a balance between ambition and practicality. Note that 3.5 is already above the benchmark average of 3.0 stars, so this level is already asking developers to outperform the industry as a whole, and is therefore quite a high target.
+
+For legacy systems, the target quality should be in line with the system's current quality. If the system as a whole is currently at 2.1 stars, it's not realistic to ask every single code change to rate 4.0 stars or higher. The same applies to systems in domains where the technology makes it harder to write maintainable code, for example when using low-level languages like C.
 
 ### Where can I find more information about your metrics?
 
@@ -62,7 +104,11 @@ We created Sigrid CI to be used during code reviews, so the feedback is based on
 
 However, we do consider the *entire* contents of those files, not only the lines that you personally wrote. This is because of the [boy scout rule](https://www.oreilly.com/library/view/97-things-every/9780596809515/ch08.html): *"Always leave the campground cleaner than you found it."*. Refactoring and regular work are not two separate activities, they belong together. Having separate tickets to refactor certain areas is OK, but it indicates that something went wrong earlier in the process, that led to those issues being introduced in the first place. Ideally, small refactorings should be done *during* regular tickets. That means that any tickets affecting existing files should not *only* consist of implementing the new behavior. You should also strive to make small refactorings that relate to the code you're currently working on. You have the files open anyway! 
 
-Obviously, there are still limits to the amount of refactoring you can do in the context of a single ticket. It's probably not a good idea to change the entire architecture while working on a bug fix. This is why Sigrid CI reports on a subset of [SIG's maintainability quality model](https://www.softwareimprovementgroup.com/methodologies/iso-iec-25010-2011-standard/): the code-level metrics are in scope, but the architecture-level metrics are not. This is due to the difference in *local* versus *global* refactorings. Making some changes in the context of a file tend to be fairly local, in that they don't affect a lot of other people. This is why those types of refactoring are fine to work on during regular development work. In contrast, architectural refactoring will have a big impact on a lot of people, so this is something that needs more consideration and needs to be planned separately.
+### Why are architecture metrics excluded from Sigrid CI?
+
+There are limits to the amount of refactoring you can do in the context of a single ticket. It's probably not a good idea to change the entire architecture while working on a bug fix. This is why Sigrid CI reports on a subset of [SIG's maintainability quality model](https://www.softwareimprovementgroup.com/methodologies/iso-iec-25010-2011-standard/): the code-level metrics are in scope, but the architecture-level metrics are not. This is due to the difference in *local* versus *global* refactorings. Making some changes in the context of a file tend to be fairly local, in that they don't affect a lot of other people. This is why those types of refactoring are fine to work on during regular development work. In contrast, architectural refactoring will have a big impact on a lot of people, so this is something that needs more consideration and needs to be planned separately.
+
+Let us know if you believe we *should* provide feedback on architecture metrics in Sigrid CI, as we are considering to offer it as an option in a future version.
 
 ### Should we fail the build if the Sigrid CI check fails?
 
@@ -72,11 +118,54 @@ One of Sigrid's key goals is making software quality advice *reasonable*. It's e
 
 We therefore believe in a comply-or-explain model. Obviously, you should still strive to pass the Sigrid CI check in the overwhelming majority of cases. However, in the rare cases the check fails, it's perfectly OK for the reviewer to overrule the check and accept the pull request, as long as the reviewer finds that the author had good reasons for deviating from the best practice in that particular case.
 
-## Why doesn't deleted code influence the rating?
+### Why doesn't deleted code influence the rating?
 
 In general, deleting code improves maintainability. The less code you have, the less you have to maintain. Having less code also makes it easier to make structural changes, since such changes will require less effort.
 
 So why does Sigrid CI only give ratings based on new and changed code, but doesn't reward you for deleting code? This is mostly to keep the rating simple: combining code quality and deleted code into a single metric would make it hard to understand. Also, the majority of pull requests are about adding new code or changing existing code, deleting code is less common, so we have chosen to not optimize for that scenario.
+
+### We have a multi-repo project, can I still use Sigrid CI?
+
+Yes. In some situations, the view of your project/system in Sigrid might differ from your repository structure. For example, you might have separate repositories for your back-end and front-end, yet Sigrid combines them into one big system. 
+
+There are two ways to use Sigrid CI in such a situation. 
+
+- You can change the structure in Sigrid to match your repositories. This is the simplest option, but different roles can have different opinions on what is a suitable structure in Sigrid (though development teams tend to prefer Sigrid matching their repositories).
+- Even when *not* changing the Sigrid structure, it is still possible to run Sigrid CI for your repository. You can use the `--pathprefix` option to explain Sigrid CI how your repository structure should be matched to your Sigrid configuration. This option is explained in [using the Sigrid CI client script](client-script-usage.md).
+
+### Can I see which files are upload to Sigrid?
+
+Yes. You can add the `--showupload` option when calling the [client script](client-script-usage.md). This will add log output for every file that is included in the upload that is submitted to Sigrid.
+
+## Common problems
+
+### What to do when the script does not work?
+
+The Sigrid CI Python script is currently under active development, which means that its subject to change, and namely, its dependencies are subject to change as we add new functionality.
+Sigrid CI requires Python 3.7 or higher.
+When not using Docker to run the script, this requires that the dependencies in the environment in which the script is being ran are in sync with the actual code, and, in order to do that, you can run either `pip install -r requirement.txt` or `pipenv install`, when using Python virtual environments.
+
+### I'm receiving an error message that certificate verification failed
+
+In some cases, the Sigrid CI client script might produce an error message `[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate`. This indicates that Python is unable to access the system's certificate store. Sigrid CI does not need any special or custom certificates, access to the regualr system certificates is sufficient. 
+
+If your environment requires a certificate store in a custom location, the environment variables `openssl_cafile_env` and `openssl_capath_envz` can be used to point Python to the correct location. Refer to the [Python documentation on OpenSSL](https://docs.python.org/3/library/ssl.html) for more information
+
+## Infrastructure and security questions
+
+### How do you protect our source code?
+
+SIG is ISO/IEC 27001 certified, to ensure information security management and appropriate levels of confidentiality, integrity, and availability of your data.
+
+You can find more information on SIG's infrastructure and security protections in the [Information Security Policy](https://www.softwareimprovementgroup.com/wp-content/uploads/SIG_Information_Security_Policy.pdf).
+
+### Where is your service hosted?
+
+Sigrid, including Sigrid CI, is hosted on Amazon Web Services. If you have specific questions on our infrastructure, please [contact us](mailto:support@softwareimprovementgroup.com). 
+
+### Do we need to update our firewall settings?
+
+Possibly. As mentioned above, Sigrid is hosted on AWS. This means your firewall needs to allow outgoing traffic in order to submit your project's source code to Sigrid. [Contact SIG](mailto:support@softwareimprovementgroup.com) if you need specific information on this setup.
 
 ## Contact and support
 

@@ -17,41 +17,57 @@
 import argparse
 import base64
 import datetime
+import dataclasses
 import html
 import json
 import os
 import sys
 import time
+import typing
 import urllib.parse
 import urllib.request
 import zipfile
 
 
+LOG_HISTORY = []
+
+
 def log(message):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"{timestamp}  {message}")
+    LOG_HISTORY.append(message)
+    
+    
+@dataclasses.dataclass
+class UploadOptions:
+    sourceDir: str = None
+    excludePatterns: typing.List[str] = dataclasses.field(default_factory=lambda: [])
+    includeHistory: bool = False
+    pathPrefix: str = ""
+    showContents: bool = False
 
 
 class SigridApiClient:
     PROTOCOL_VERSION = "v1"
     POLL_INTERVAL = 60
     POLL_ATTEMPTS = 30
+    RETRY_ATTEMPTS = 5
 
     def __init__(self, args):
         self.baseURL = args.sigridurl
         self.account = os.environ["SIGRID_CI_ACCOUNT"]
         self.token = os.environ["SIGRID_CI_TOKEN"]
-        
         self.urlPartnerName = urllib.parse.quote_plus(args.partner.lower())
         self.urlCustomerName = urllib.parse.quote_plus(args.customer.lower())
         self.urlSystemName = urllib.parse.quote_plus(args.system.lower())
+        self.publish = args.publish
         
     def callSigridAPI(self, api, path):
         url = f"{self.baseURL}/rest/{api}{path}"
         request = urllib.request.Request(url, None)
         request.add_header("Accept", "application/json")
         request.add_header("Authorization", \
-            b"Basic " + base64.urlsafe_b64encode(f"{self.account}:{self.token}".encode("utf8")))
+            b"Basic " + base64.standard_b64encode(f"{self.account}:{self.token}".encode("utf8")))
             
         response = urllib.request.urlopen(request)
         if response.status == 204:
@@ -62,17 +78,16 @@ class SigridApiClient:
             return {}
         return json.loads(responseBody)
         
-    def submitUpload(self, sourceDir, excludePatterns, useRepoHistory):
+    def submitUpload(self, options):
         log("Creating upload")
-        uploadPacker = SystemUploadPacker(excludePatterns, useRepoHistory)
+        uploadPacker = SystemUploadPacker(options)
         upload = "sigrid-upload-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + ".zip"
-        uploadPacker.prepareUpload(sourceDir, upload)
+        uploadPacker.prepareUpload(options.sourceDir, upload)
     
         log("Preparing upload")
-        requestUploadResponse = self.callSigridAPI("inboundresults",
-            f"/{self.urlPartnerName}/{self.urlCustomerName}/{self.urlSystemName}/ci/uploads/{self.PROTOCOL_VERSION}")
-        uploadUrl = requestUploadResponse["uploadUrl"]
-        analysisId = requestUploadResponse["ciRunId"]
+        uploadLocation = self.obtainUploadLocation()
+        uploadUrl = uploadLocation["uploadUrl"]
+        analysisId = uploadLocation["ciRunId"]
         log(f"Sigrid CI analysis ID: {analysisId}")
         
         log("Submitting upload")
@@ -80,6 +95,26 @@ class SigridApiClient:
             raise Exception("Uploading file failed")
             
         return analysisId
+        
+    def obtainUploadLocation(self):
+        for attempt in range(self.RETRY_ATTEMPTS):
+            try:
+                return self.callSigridAPI("inboundresults", self.getRequestUploadPath())
+            except urllib.error.HTTPError as e:
+                if e.code == 502:
+                    log("Retrying")
+                    time.sleep(self.POLL_INTERVAL)
+                else:
+                    self.processHttpError(e)
+                    
+        log("Sigrid is currently unavailable")
+        sys.exit(1)
+        
+    def getRequestUploadPath(self):
+        path = f"/{self.urlPartnerName}/{self.urlCustomerName}/{self.urlSystemName}/ci/uploads/{self.PROTOCOL_VERSION}"
+        if self.publish:
+            path += "/publish"
+        return path
         
     def uploadBinaryFile(self, url, upload):
         with open(upload, "rb") as uploadRef:
@@ -99,14 +134,27 @@ class SigridApiClient:
                 if response != {}:
                     return response            
             except urllib.error.HTTPError as e:
-                if e.code != 404:
-                    raise Exception(f"Received HTTP status {e.code}")
+                self.processHttpError(e)
+            except json.JSONDecodeError as e:
+                log("Received incomplete analysis results")
             
             log("Waiting for analysis results")
             time.sleep(self.POLL_INTERVAL)
             
         log("Analysis failed: waiting for analysis results took too long")
         sys.exit(1)
+        
+    def processHttpError(self, e):
+        if e.code in [401, 403]:
+            log("You are not authorized to access Sigrid for this system")
+            sys.exit(1)
+        elif e.code == 404:
+            log("Analysis results not yet available")
+        elif e.code >= 500:
+            log(f"Sigrid is currently not available (HTTP status {e.code})")
+            sys.exit(1)
+        else:      
+            raise Exception(f"Received HTTP status {e.code}")
         
 
 class SystemUploadPacker:
@@ -125,12 +173,14 @@ class SystemUploadPacker:
         ".png"
     ]
     
-    def __init__(self, excludePatterns=[], useRepoHistory=True):
-        self.excludePatterns = []
-        self.excludePatterns += self.DEFAULT_EXCLUDES
-        self.excludePatterns += [excl for excl in excludePatterns if excl != ""]
-        if not useRepoHistory:
-            self.excludePatterns += [".git"]
+    def __init__(self, options):
+        self.excludePatterns = [] + (options.excludePatterns or []) + self.DEFAULT_EXCLUDES
+        self.excludePatterns = [excl for excl in self.excludePatterns if excl != ""]
+        if not options.includeHistory:
+            self.excludePatterns += [".git/", ".gitmodules"]
+
+        self.pathPrefix = options.pathPrefix.strip("/")
+        self.showContents = options.showContents
 
     def prepareUpload(self, sourceDir, outputFile):
         zipFile = zipfile.ZipFile(outputFile, "w", zipfile.ZIP_DEFLATED)
@@ -140,14 +190,30 @@ class SystemUploadPacker:
                 filePath = os.path.join(root, file)
                 if file != outputFile and not self.isExcluded(filePath):
                     relativePath = os.path.relpath(os.path.join(root, file), sourceDir)
-                    zipFile.write(filePath, relativePath)
+                    uploadPath = self.getUploadFilePath(relativePath)
+                    if self.showContents:
+                        log(f"Adding file to upload: {uploadPath}")
+                    zipFile.write(filePath, uploadPath)
         
         zipFile.close()
         
-        uploadSizeMB = max(round(os.path.getsize(outputFile) / 1024 / 1024), 1)
+        self.checkUploadContents(outputFile)
+        
+    def checkUploadContents(self, outputFile):
+        uploadSizeBytes = os.path.getsize(outputFile)
+        uploadSizeMB = max(round(uploadSizeBytes / 1024 / 1024), 1)
         log(f"Upload size is {uploadSizeMB} MB")
+        
         if uploadSizeMB > self.MAX_UPLOAD_SIZE_MB:
             raise Exception(f"Upload exceeds maximum size of {self.MAX_UPLOAD_SIZE_MB} MB")
+            
+        if uploadSizeBytes < 50000:
+            log("Warning: Upload is very small, source directory might not contain all source code")
+            
+    def getUploadFilePath(self, relativePath):
+        if self.pathPrefix == "":
+            return relativePath
+        return f"{self.pathPrefix}/{relativePath}"
         
     def isExcluded(self, filePath):
         normalizedPath = filePath.replace("\\", "/")
@@ -158,8 +224,11 @@ class SystemUploadPacker:
         
         
 class Report:
-    METRICS = ["VOLUME", "DUPLICATION", "UNIT_SIZE", "UNIT_COMPLEXITY", "UNIT_INTERFACING", "MODULE_COUPLING", \
+    METRICS = ["VOLUME", "DUPLICATION", "UNIT_SIZE", "UNIT_COMPLEXITY", "UNIT_INTERFACING", "MODULE_COUPLING",
                "COMPONENT_BALANCE_PROP", "COMPONENT_INDEPENDENCE", "COMPONENT_ENTANGLEMENT", "MAINTAINABILITY"]
+               
+    REFACTORING_CANDIDATE_METRICS = ["DUPLICATION", "UNIT_SIZE", "UNIT_COMPLEXITY", "UNIT_INTERFACING",
+                                     "MODULE_COUPLING"]
 
     def generate(self, feedback, args):
         pass
@@ -169,6 +238,10 @@ class Report:
             return "N/A"
         return "%.1f" % ratings[metric]
         
+    def formatBaselineDate(self, feedback):
+        snapshotDate = datetime.datetime.strptime(feedback["baseline"], "%Y%m%d")
+        return snapshotDate.strftime("%Y-%m-%d")
+        
     def isPassed(self, feedback, metric, targetRating):
         value = feedback["newCodeRatings"].get(metric, None)
         return value == None or value >= targetRating
@@ -176,6 +249,10 @@ class Report:
     def getSigridUrl(self, args):
         return "https://sigrid-says.com/" + urllib.parse.quote_plus(args.customer) + "/" + \
             urllib.parse.quote_plus(args.system);
+            
+    def getRefactoringCandidates(self, feedback, metric):
+        refactoringCandidates = feedback.get("refactoringCandidates", [])
+        return [rc for rc in refactoringCandidates if rc["metric"] == metric]
 
 
 class TextReport(Report):
@@ -184,30 +261,42 @@ class TextReport(Report):
     ANSI_YELLOW = "\033[33m"
     ANSI_RED = "\033[91m"
     ANSI_BLUE = "\033[96m"
-    LINE_WIDTH = 77
+    LINE_WIDTH = 89
 
     def generate(self, feedback, args):
         print("-" * self.LINE_WIDTH)
         print("Refactoring candidates")
         print("-" * self.LINE_WIDTH)
-        print("")
-        for metric in [metric for metric in self.METRICS if metric in feedback["refactoringCandidatesPerType"]]:
-            print("")
-            print(metric.replace("_PROP", "").title().replace("_", " "))
-            for rc in feedback["refactoringCandidatesPerType"][metric]:
-                print("    - " + rc)
+        for metric in self.REFACTORING_CANDIDATE_METRICS:
+            self.printMetric(feedback, metric)
 
         print("")
         print("-" * self.LINE_WIDTH)
         print("Maintainability ratings")
         print("-" * self.LINE_WIDTH)
-        print("System property".ljust(40) + "Overall quality".ljust(20) + "New code quality")
+        print("System property".ljust(40) + f"Baseline ({self.formatBaselineDate(feedback)})    New/changed code quality")
         for metric in self.METRICS:
             if metric == "MAINTAINABILITY":
                 print("-" * self.LINE_WIDTH)
-            self.printRatingColor(metric.title().replace("_", " ").ljust(40) + \
-                "(" + self.formatRating(feedback["overallRatings"], metric) + ")".ljust(16) + \
+            self.printRatingColor(metric.replace("_PROP", "").title().replace("_", " ").ljust(40) + \
+                "(" + self.formatRating(feedback["overallRatings"], metric) + ")".ljust(21) + \
                 self.formatRating(feedback["newCodeRatings"], metric), feedback["newCodeRatings"].get(metric))
+                
+    def printMetric(self, feedback, metric):
+        print("")
+        print(metric.replace("_PROP", "").title().replace("_", " "))
+        
+        refactoringCandidates = self.getRefactoringCandidates(feedback, metric)
+        if len(refactoringCandidates) == 0:
+            print("    None")
+        else:
+            for rc in refactoringCandidates:
+                print(self.formatRefactoringCandidate(rc))
+                
+    def formatRefactoringCandidate(self, rc):
+        category = ("(" + rc["category"] + ")").ljust(14)
+        subject = rc["subject"].replace("\n", "\n" + (" " * 21)).replace("::", "\n" + (" " * 21))
+        return f"    - {category} {subject}"
     
     def printRatingColor(self, message, rating):
         ansiCodes = {
@@ -232,12 +321,12 @@ class StaticHtmlReport(Report):
         if not os.path.exists("sigrid-ci-output"):
             os.mkdir("sigrid-ci-output")
     
-        with open(os.path.dirname(__file__) + "/sigridci-feedback-template.html", "r") as templateRef:
+        with open(os.path.dirname(__file__) + "/sigridci-feedback-template.html", encoding="utf-8", mode="r") as templateRef:
             template = templateRef.read()
             template = self.renderHtmlFeedback(template, feedback, args)
 
         reportFile = os.path.abspath("sigrid-ci-output/index.html")
-        writer = open(reportFile, "w")
+        writer = open(reportFile, encoding="utf-8", mode="w")
         writer.write(template)
         writer.close()
         
@@ -254,37 +343,52 @@ class StaticHtmlReport(Report):
         template = template.replace("@@@SYSTEM", args.system)
         template = template.replace("@@@TARGET", "%.1f" % args.targetquality)
         template = template.replace("@@@LINES_OF_CODE_TOUCHED", "%d" % feedback.get("newCodeLinesOfCode", 0))
+        template = template.replace("@@@BASELINE_DATE", self.formatBaselineDate(feedback))
         template = template.replace("@@@SIGRID_LINK", self.getSigridUrl(args))
         for metric in self.METRICS:
-            template = template.replace("@@@" + metric + "_OVERALL", self.formatRating(feedback["overallRatings"], metric))
-            template = template.replace("@@@" + metric + "_NEW", self.formatRating(feedback["newCodeRatings"], metric))
-            template = template.replace("@@@" + metric + "_STARS_OVERALL", self.formatHtmlStars(feedback["overallRatings"], metric))
-            template = template.replace("@@@" + metric + "_STARS_NEW", self.formatHtmlStars(feedback["newCodeRatings"], metric))
+            template = template.replace(f"@@@{metric}_OVERALL", self.formatRating(feedback["overallRatings"], metric))
+            template = template.replace(f"@@@{metric}_NEW", self.formatRating(feedback["newCodeRatings"], metric))
+            template = template.replace(f"@@@{metric}_STARS_OVERALL", self.formatHtmlStars(feedback["overallRatings"], metric))
+            template = template.replace(f"@@@{metric}_STARS_NEW", self.formatHtmlStars(feedback["newCodeRatings"], metric))
             passed = self.isPassed(feedback, metric, args.targetquality)
-            template = template.replace("@@@" + metric + "_PASSED", "passed" if passed else "failed")
-            refactoringCandidates = feedback["refactoringCandidatesPerType"].get(metric, [])
-            template = template.replace("@@@" + metric + "_REFACTORING_CANDIDATES",
-                "\n".join(["<span>" + html.escape(rc) + "</span>" for rc in refactoringCandidates]))
+            template = template.replace(f"@@@{metric}_PASSED", "passed" if passed else "failed")
+            template = template.replace(f"@@@{metric}_REFACTORING_CANDIDATES", self.formatRefactoringCandidates(feedback, metric))
         return template
+        
+    def formatRefactoringCandidates(self, feedback, metric):
+        refactoringCandidates = self.getRefactoringCandidates(feedback, metric)
+        if len(refactoringCandidates) == 0:
+            return "None"
+        return "\n".join([self.formatRefactoringCandidate(rc) for rc in refactoringCandidates])
+        
+    def formatRefactoringCandidate(self, rc):
+        subjectName = html.escape(rc["subject"]).replace("\n", "<br />").replace("::", "<br />")
+        category = html.escape(rc["category"])
+        return f"<span><em>({category})</em><div>{subjectName}</div></span>"
         
     def formatHtmlStars(self, ratings, metric):
         if ratings.get(metric, None) == None:
             return "N/A"
-        stars = min(round(ratings[metric]), 5)
+        stars = min(int(ratings[metric] + 0.5), 5)
         fullStars = stars * self.HTML_STAR_FULL
         emptyStars = (5 - stars) * self.HTML_STAR_EMPTY
         rating = self.formatRating(ratings, metric)
         return f"<strong class=\"stars{stars}\">{fullStars}{emptyStars}</strong> &nbsp; " + rating
         
         
-class ExitCodeReport(Report):
+class ExitCodeReport(Report):   
     def generate(self, feedback, args):
         asciiArt = TextReport()
         if self.isPassed(feedback, "MAINTAINABILITY", args.targetquality):
-            asciiArt.printColor("\n** MAINTAINABILITY CHECK PASSED **\n", asciiArt.ANSI_BOLD + asciiArt.ANSI_GREEN)
+            asciiArt.printColor("\n** SIGRID CI RUN COMPLETE: YOU WROTE MAINTAINABLE CODE AND REACHED THE TARGET **\n", \
+                asciiArt.ANSI_BOLD + asciiArt.ANSI_GREEN)
         else:
-            asciiArt.printColor("\n** MAINTAINABILITY CHECK FAILED **\n", asciiArt.ANSI_BOLD + asciiArt.ANSI_RED)
-            sys.exit(1)
+            asciiArt.printColor("\n** SIGRID CI RUN COMPLETE: THE CODE YOU WROTE DID NOT MEET THE TARGET FOR MAINTAINABLE CODE **\n", \
+                asciiArt.ANSI_BOLD + asciiArt.ANSI_YELLOW)
+            # Only break the build when not publishing to Sigrid,
+            # i.e. when running on a branch or pull request.
+            if not args.publish:
+                sys.exit(1)
                 
 
 if __name__ == "__main__":
@@ -294,8 +398,11 @@ if __name__ == "__main__":
     parser.add_argument("--system", type=str)
     parser.add_argument("--source", type=str)
     parser.add_argument("--targetquality", type=float, default=3.5)
+    parser.add_argument("--publish", action="store_true")
     parser.add_argument("--exclude", type=str, default="")
-    parser.add_argument("--history", type=str, default="none")
+    parser.add_argument("--pathprefix", type=str, default="")
+    parser.add_argument("--showupload", action="store_true")
+    parser.add_argument("--history", action="store_true")
     parser.add_argument("--sigridurl", type=str, default="https://sigrid-says.com")
     args = parser.parse_args()
     
@@ -303,8 +410,8 @@ if __name__ == "__main__":
         parser.print_help()
         sys.exit(1)
     
-    if sys.version_info.major <= 2:
-        print("Sigrid CI requires Python 3")
+    if sys.version_info.major == 2 or sys.version_info.minor < 7:
+        print("Sigrid CI requires Python 3.7 or higher")
         sys.exit(1)
         
     if not "SIGRID_CI_ACCOUNT" in os.environ or not "SIGRID_CI_TOKEN" in os.environ:
@@ -316,10 +423,10 @@ if __name__ == "__main__":
         sys.exit(1)
     
     log("Starting Sigrid CI")
+    options = UploadOptions(args.source, args.exclude.split(","), args.history, args.pathprefix, args.showupload)
     apiClient = SigridApiClient(args)
-    analysisId = apiClient.submitUpload(args.source, args.exclude.split(","), args.history != "none")
+    analysisId = apiClient.submitUpload(options)
     feedback = apiClient.fetchAnalysisResults(analysisId)
     
     for report in [TextReport(), StaticHtmlReport(), ExitCodeReport()]:
         report.generate(feedback, args)
-        

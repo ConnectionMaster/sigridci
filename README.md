@@ -1,18 +1,11 @@
-Sigrid CI
-=========
+<img src="images/sigrid-logo.png" width="200" />
 
 ## Table of contents
 
 - [Sigrid](#sigrid-your-software-quality-made-measurable)
 - [Integrating Sigrid CI into your development pipeline](#integrating-sigrid-ci-into-your-development-pipeline)
-- [Frequently asked questions](#frequently-asked-questions)
+- [Frequently asked questions](faq.md)
 - [Contact and support](#contact-and-support)
-
----
-
-**Sigrid CI (beta) is ready to be rolled out to our first customers. Please [contact us](mailto:support@softwareimprovementgroup.com) if you have suggestions on how to make it more useful to you and your team.**
-
----
 
 <img src="images/sigrid-dashboard.png" width="650" />
 
@@ -22,7 +15,9 @@ Sigrid CI
 
 Sigrid performs code quality checks that have been designed by the [Software Improvement Group](https://www.softwareimprovementgroup.com/), which have been used by thousands of development teams over the past 20 years to help improve their software. SIG's approach is based on the ISO 25010 standard for software quality, and has been accredited to ensure alignment with the standard.
 
-Sigrid CI allows you to integrate Sigrid's feedback into your development pipeline. This enables you to fix quality issues right away as part of your code reviews, instead of having to spot and fix them after the fact.
+Sigrid CI allows you to integrate Sigrid's feedback into your development pipeline. This enables you to fix quality issues right away as part of your code reviews, instead of having to spot and fix them after the fact. You can access Sigrid's feedback through [sigrid-says.com](https://sigrid-says.com), or directly within your Continuous Integration environment.
+
+<img src="images/sigridci-features.png" width="700" />
 
 Compared to other tools that perform code quality checks, i.e. linters, using Sigrid has a number of advantages:
 
@@ -49,10 +44,12 @@ In addition to the generic instructions, we have also prepared specific instruct
 - [Integrating Sigrid CI with Bitbucket Pipelines](bitbucket-pipelines.md)
 - [Integrating Sigrid CI with Jenkins](jenkins.md)
 - [Integrating Sigrid CI with Azure DevOps](azure-devops.md)
+- [Integrating Sigrid CI with TeamCity](teamcity.md)
 
 ## More information
 
 - [Frequently asked questions](faq.md)
+- [Recording of SigridCI demonstration](https://www.youtube.com/watch?v=1QWWtFlB6cQ) 
 
 ## Contact and support
 

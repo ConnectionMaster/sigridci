@@ -16,10 +16,18 @@ import os
 import tempfile
 import types
 import unittest
+import urllib
 import zipfile
-from sigridci.sigridci import SystemUploadPacker, SigridApiClient
+from sigridci.sigridci import SystemUploadPacker, SigridApiClient, Report, TextReport, UploadOptions, LOG_HISTORY
+
 
 class SigridCiTest(unittest.TestCase):
+    
+    DEFAULT_ARGS = types.SimpleNamespace(partner="sig", customer="Aap", system="NOOT", sigridurl="", publish=False)
+
+    def setUp(self):
+        os.environ["SIGRID_CI_ACCOUNT"] = "dummy"
+        os.environ["SIGRID_CI_TOKEN"] = "dummy"
 
     def testCreateZipFromDirectory(self):
         sourceDir = tempfile.mkdtemp()
@@ -28,7 +36,7 @@ class SigridCiTest(unittest.TestCase):
         
         outputFile = tempfile.mkstemp()[1]
         
-        uploadPacker = SystemUploadPacker()
+        uploadPacker = SystemUploadPacker(UploadOptions())
         uploadPacker.prepareUpload(sourceDir, outputFile)
 
         entries = zipfile.ZipFile(outputFile).namelist()
@@ -47,7 +55,7 @@ class SigridCiTest(unittest.TestCase):
         
         outputFile = tempfile.mkstemp()[1]
         
-        uploadPacker = SystemUploadPacker()
+        uploadPacker = SystemUploadPacker(UploadOptions())
         uploadPacker.prepareUpload(sourceDir, outputFile)
         
         entries = zipfile.ZipFile(outputFile).namelist()
@@ -65,7 +73,7 @@ class SigridCiTest(unittest.TestCase):
         
         outputFile = tempfile.mkstemp()[1]
         
-        uploadPacker = SystemUploadPacker()
+        uploadPacker = SystemUploadPacker(UploadOptions())
         uploadPacker.prepareUpload(sourceDir, outputFile)
 
         self.assertEqual(os.path.exists(outputFile), True)
@@ -80,7 +88,7 @@ class SigridCiTest(unittest.TestCase):
         
         outputFile = tempfile.mkstemp()[1]
         
-        uploadPacker = SystemUploadPacker(["b/"])
+        uploadPacker = SystemUploadPacker(UploadOptions(excludePatterns=["b/"]))
         uploadPacker.prepareUpload(sourceDir, outputFile)
 
         self.assertEqual(os.path.exists(outputFile), True)
@@ -95,7 +103,7 @@ class SigridCiTest(unittest.TestCase):
         
         outputFile = tempfile.mkstemp()[1]
         
-        uploadPacker = SystemUploadPacker([], True)
+        uploadPacker = SystemUploadPacker(UploadOptions(includeHistory=True))
         uploadPacker.prepareUpload(sourceDir, outputFile)
         
         entries = zipfile.ZipFile(outputFile).namelist()
@@ -112,7 +120,7 @@ class SigridCiTest(unittest.TestCase):
         
         outputFile = tempfile.mkstemp()[1]
         
-        uploadPacker = SystemUploadPacker([], False)
+        uploadPacker = SystemUploadPacker(UploadOptions(includeHistory=False))
         uploadPacker.prepareUpload(sourceDir, outputFile)
 
         self.assertEqual(os.path.exists(outputFile), True)
@@ -122,20 +130,137 @@ class SigridCiTest(unittest.TestCase):
         sourceDir = tempfile.mkdtemp()
         with open(sourceDir + "/a.py", "wb") as f:
             f.write(os.urandom(2000000))
-
-        outputFile = tempfile.mkstemp()[1]
-        
-        uploadPacker = SystemUploadPacker()
+            
+        uploadPacker = SystemUploadPacker(UploadOptions())
         uploadPacker.MAX_UPLOAD_SIZE_MB = 1
     
-        self.assertRaises(Exception, uploadPacker.prepareUpload, sourceDir, outputFile)
+        self.assertRaises(Exception, uploadPacker.prepareUpload, sourceDir, tempfile.mkstemp()[1])
+        
+    def testLogMessageWhenUploadTooSmall(self):
+        LOG_HISTORY.clear()
+    
+        sourceDir = tempfile.mkdtemp()
+        with open(sourceDir + "/a.py", "wb") as f:
+            f.write(os.urandom(1))
+            
+        uploadPacker = SystemUploadPacker(UploadOptions())
+        uploadPacker.prepareUpload(sourceDir, tempfile.mkstemp()[1])
+
+        self.assertEqual(LOG_HISTORY, ["Upload size is 1 MB", \
+            "Warning: Upload is very small, source directory might not contain all source code"])
+            
+    def testLogUploadContents(self):
+        LOG_HISTORY.clear()
+    
+        sourceDir = tempfile.mkdtemp()
+        with open(sourceDir + "/a.py", "wb") as f:
+            f.write(os.urandom(1))
+        with open(sourceDir + "/b.py", "wb") as f:
+            f.write(os.urandom(1))
+            
+        uploadPacker = SystemUploadPacker(UploadOptions(showContents=True))
+        uploadPacker.prepareUpload(sourceDir, tempfile.mkstemp()[1])
+
+        self.assertEqual(LOG_HISTORY, ["Adding file to upload: a.py", "Adding file to upload: b.py", \
+            "Upload size is 1 MB", \
+            "Warning: Upload is very small, source directory might not contain all source code"])
+        
+    def testUsePathPrefixInUpload(self):
+        sourceDir = tempfile.mkdtemp()
+        subDirA = sourceDir + "/a"
+        os.mkdir(subDirA)
+        self.createTempFile(subDirA, "a.py", "a")
+        subDirB = sourceDir + "/b"
+        os.mkdir(subDirB)
+        self.createTempFile(subDirB, "b.py", "b")
+        
+        outputFile = tempfile.mkstemp()[1]
+        
+        uploadPacker = SystemUploadPacker(UploadOptions(pathPrefix="frontend"))
+        uploadPacker.prepareUpload(sourceDir, outputFile)
+        
+        entries = zipfile.ZipFile(outputFile).namelist()
+        entries.sort()
+
+        self.assertEqual(os.path.exists(outputFile), True)
+        self.assertEqual(entries, ["frontend/a/a.py", "frontend/b/b.py"])
+        
+    def testPathPrefixDoesNotLeadToDoubleSlash(self):
+        sourceDir = tempfile.mkdtemp()
+        self.createTempFile(sourceDir, "a.py", "a")
+        
+        outputFile = tempfile.mkstemp()[1]
+        
+        uploadPacker = SystemUploadPacker(UploadOptions(pathPrefix="/backend/"))
+        uploadPacker.prepareUpload(sourceDir, outputFile)
+        
+        entries = zipfile.ZipFile(outputFile).namelist()
+        entries.sort()
+
+        self.assertEqual(os.path.exists(outputFile), True)
+        self.assertEqual(entries, ["backend/a.py"])
         
     def testForceLowerCaseForCustomerAndSystemName(self):
-        args = types.SimpleNamespace(partner="sig", customer="Aap", system="NOOT", sigridurl="")
+        args = types.SimpleNamespace(partner="sig", customer="Aap", system="NOOT", sigridurl="", publish=False)
         apiClient = SigridApiClient(args)
         
         self.assertEqual(apiClient.urlCustomerName, "aap")
         self.assertEqual(apiClient.urlSystemName, "noot")
+        
+    def testFeedbackTemplateOnlyContainsAsciiCharacters(self):
+        with open("sigridci/sigridci-feedback-template.html", mode="r", encoding="ascii") as templateRef:
+            template = templateRef.read()
+            
+    def testDoNotThrowExeptionFor404(self):
+        apiClient = SigridApiClient(self.DEFAULT_ARGS)
+        apiClient.processHttpError(urllib.error.HTTPError("http://www.sig.eu", 404, "", {}, None))
+            
+    def testDoThrowExceptionForClientError(self):
+        apiClient = SigridApiClient(self.DEFAULT_ARGS)
+        
+        self.assertRaises(Exception, apiClient.processHttpError, \
+            urllib.error.HTTPError("http://www.sig.eu", 400, "", {}, None), True)
+            
+    def testGetRefactoringCandidatesForNewFormat(self):
+        feedback = {
+            "refactoringCandidates": [{"subject":"a/b.java::Duif.vuur()","category":"introduced","metric":"UNIT_SIZE"}]
+        }
+        
+        report = Report()
+        unitSize = report.getRefactoringCandidates(feedback, "UNIT_SIZE")
+        
+        self.assertEqual(len(unitSize), 1)
+        self.assertEqual(unitSize[0]["subject"], "a/b.java::Duif.vuur()")
+        
+    def testFormatTextRefactoringCandidate(self):
+        rc1 = {"subject" : "aap", "category" : "introduced", "metric" : "UNIT_SIZE"}
+        rc2 = {"subject" : "noot\nmies", "category" : "worsened", "metric" : "DUPLICATION"}
+        rc3 = {"subject" : "noot::mies", "category" : "worsened", "metric" : "UNIT_SIZE"}
+        
+        report = TextReport()
+        
+        self.assertEqual(report.formatRefactoringCandidate(rc1), \
+            "    - (introduced)   aap")
+        
+        self.assertEqual(report.formatRefactoringCandidate(rc2), \
+            "    - (worsened)     noot\n                     mies")
+            
+        self.assertEqual(report.formatRefactoringCandidate(rc3), \
+            "    - (worsened)     noot\n                     mies")
+            
+    def testRegularUploadPathDoesNotPublishByDefault(self):
+        args = types.SimpleNamespace(partner="sig", customer="aap", system="noot", sigridurl="https://example.com", \
+            publish=False)
+        apiClient = SigridApiClient(args)
+        
+        self.assertEqual(apiClient.getRequestUploadPath(), "/sig/aap/noot/ci/uploads/v1")
+        
+    def testPublishOptionChangesUploadPath(self):
+        args = types.SimpleNamespace(partner="sig", customer="aap", system="noot", sigridurl="https://example.com", \
+            publish=True)
+        apiClient = SigridApiClient(args)
+        
+        self.assertEqual(apiClient.getRequestUploadPath(), "/sig/aap/noot/ci/uploads/v1/publish")
 
     def createTempFile(self, dir, name, contents):
         writer = open(dir + "/" + name, "w")

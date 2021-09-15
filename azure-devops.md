@@ -1,19 +1,13 @@
 Integrating Sigrid CI with Azure DevOps
 =======================================
 
-This guide explains how to integrate Sigrid into your Azure DevOps continuous integration pipeline, using GitHub Actions. Make sure you have also read the [general Sigrid CI documentation](README.md) before starting this guide.
-
----
-
-**Sigrid CI is currently in beta. Please [contact us](mailto:support@softwareimprovementgroup.com) if you have suggestions on how to make it more useful to you and your team.**
-
----
+This guide explains how to integrate Sigrid into your Azure DevOps continuous integration pipeline. Make sure you have also read the [general Sigrid CI documentation](README.md) before starting this guide.
 
 ## Prerequisites
 
 - You have a Sigrid user account. Sigrid CI requires Sigrid, it is currently not supported to *only* use the CI integration without using Sigrid itself.
 - You have on-boarded your system, i.e. your system is available in Sigrid. [Request your system to be added](mailto:support@softwareimprovementgroup.com) if this is not yet the case.
-- [Python 3](https://www.python.org) needs to be available in the CI environment. The client scripts for Sigrid CI are based on Python.
+- [Python 3.7 or higher](https://www.python.org) needs to be available in the CI environment. The client scripts for Sigrid CI are based on Python.
 
 ## Request a Sigrid CI account
 
@@ -47,15 +41,9 @@ stages:
         artifact: sigrid-ci-output
 ```
 
-The relevant command that starts Sigrid CI is the call to the `sigridci.py` script, which will call Sigrid CI. The script takes the following arguments:
+The example uses the Docker container `python:3.9-buster`, but any Docker container that contains Python 3 will do.
 
-| Argument        | Required | Example value | Description                                                                                         |
-|-----------------|----------|---------------|-----------------------------------------------------------------------------------------------------|
-| --customer      | Yes      | examplecustomername     | Name of your organization's Sigrid account. Contact SIG support if you're not sure on this. Value should be lowercase.         |
-| --system        | Yes      | examplesystemname         | Name of your system in Sigrid. Contact SIG support if you're not sure on this. Value should be lowercase.                      |
-| --source        | Yes      | .             | Path of your project's source code. Use "." for current directory.                                  |
-| --targetquality | No       | 3.5           | Target quality level, not meeting this target will cause the CI step to fail. Default is 3.5 stars. |
-| --exclude       | No       | /build/,.png  | Comma-separated list of file and/or directory names that should be excluded from the upload. This is on top of the existing scope file in Sigrid        |
+The relevant command that starts Sigrid CI is the call to the `sigridci.py` script, which starts the Sigrid CI analysis. The scripts supports a number of arguments that you can use to configure your Sigrid CI run. The scripts and its command line interface are explained in [using the Sigrid CI client script](client-script-usage.md).
 
 Finally, note that you need to perform this step for every project where you wish to use Sigrid CI. Be aware that you can set a project-specific target quality, you don't necessarily have to use the same target for every project.
 
@@ -99,9 +87,15 @@ The output consists of the following:
 - An overview of all ratings, compared against the system as a whole. This allows you to check if your changes improved the system, or accidentally made things worse.
 - The final conclusion on whether your changes and merge request meet the quality target.
 
-In addition to the textual output, Sigrid CI also generates a static HTML file that shows the results in a more graphical form. This is similar to test coverage tools, which also tend to produce a HTML report. The pipeline does publish this report, but the Azure DevOps web interface does not currently support viewing published artifacts directly in the web interface itself. To obtain the published HTML report, refer to the [Azure DevOps documentation for downloading artifacts](https://docs.microsoft.com/en-us/azure/devops/pipelines/artifacts/artifacts-overview?view=azure-devops).
+In addition to the textual output, Sigrid CI also generates a static HTML file that shows the results in a more graphical form. This is similar to test coverage tools, which also tend to produce a HTML report. You can access the HTML report from the "published" section in the build summary.
 
-The information in the HTML report is based on the aforementioned list, though it includes slightly more detail.
+<img src="images/azure-artifacts.png" width="500" />
+
+In the list of published artifacts, expand the "sigrid-ci-output" section and download the index.html file to view the report.
+
+<img src="images/azure-artifact-download.png" width="600" />
+
+The information in the HTML report is similar to the command line output, though it includes slightly more detail.
 
 <img src="images/feedback-report.png" width="600" />
 
