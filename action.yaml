@@ -28,6 +28,10 @@ inputs:
     description: "Comma-separated list of files and directories that should not be uploaded."
     required: false
     default: "/bin/"
+  include:
+    description: "Comma-separated list of files and directories that should be included in the upload."
+    required: false
+    default: ""
   includehistory:
     description: "When enabled, includes the repository history in the upload (true/false). Required for architecture quality analysis."
     required: false
@@ -36,8 +40,21 @@ inputs:
     description: "Outputs the list of files included in the upload to Sigrid, for troubleshooting (true/false)."
     required: false
     default: false
+  subsystem:
+    description: "Used to map between repository directory structure versus the one known by Sigrid."
+    required: false
+  convert:
+    description: "Convert upload format. Only required for certain technologies, see Sigrid documentation for details."
+    required: false
+  out:
+    description: "Output directory for Sigrid CI feedback."
+    required: false
+    default: "sigrid-ci-output"
     
   # Sigrid metadata
+  displayname:
+    required: false
+    default: ""
   divisionname:
     required: false
     default: ""
@@ -93,7 +110,14 @@ runs:
     - "--exclude"
     - ${{ inputs.exclude }}
     - ${{ (inputs.showupload == 'true' && '--showupload') || '--dummy' }}
+    - "--include"
+    - ${{ inputs.include }}
+    - "--subsystem"
+    - ${{ inputs.subsystem }}
+    - "--convert"
+    - ${{ inputs.convert }}
   env:
+    displayname: ${{ inputs.displayname }}
     divisionname: ${{ inputs.divisionname }}
     teamnames: ${{ inputs.teamnames }}
     suppliernames: ${{ inputs.suppliernames }}
@@ -110,4 +134,3 @@ runs:
 branding:
   icon: hexagon
   color: purple
-  

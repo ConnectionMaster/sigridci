@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
-from sigridci.sigridci import Report, StaticHtmlReport
+from unittest import TestCase
+
+from sigridci.sigridci.publish_options import PublishOptions, RunMode
 
 
-class StaticHtmlReportTest(unittest.TestCase):
+class StaticHtmlReportTest(TestCase):
+
+    def setUp(self):
+        self.options = PublishOptions("aap", "noot", RunMode.FEEDBACK_ONLY, "/tmp", targetRating=3.5)
 
     def testFeedbackTemplateOnlyContainsAsciiCharacters(self):
-        with open("sigridci/sigridci-feedback-template.html", mode="r", encoding="ascii") as templateRef:
-            template = templateRef.read()
-            
+        with open("sigridci/sigridci/reports/sigridci-feedback-template.html", mode="r", encoding="ascii") as f:
+            f.read()

@@ -2,20 +2,45 @@ name: sigrid-pullrequest
 on: [pull_request]
 jobs:
   sigridci:
+    name: "Sigrid CI"
+    if: github.repository_owner == 'Software-Improvement-Group'
     runs-on: ubuntu-latest
     steps:
       - name: "Check out repository"
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: "Special case: We use Sigrid CI on itself, so if we want its own code to be analyzed we need a copy"
-        run: "cp -r sigridci src"
+        run: "cp -r sigridci/sigridci src && cp sigridci/*.py src"
       - name: "Run Sigrid CI" 
         env:
           SIGRID_CI_TOKEN: "${{ secrets.SIGRID_CI_TOKEN }}"
-        run: "./sigridci/sigridci.py --customer sig --system sigridci-client --source . --targetquality 3.5"
+        run: "./sigridci/sigridci.py --customer sig --system sigridci-client --source ."
       - name: "Save Sigrid CI results"
-        if: ${{ success() || failure() }}
-        uses: actions/upload-artifact@v2
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           path: "sigrid-ci-output/**"
           retention-days: 7
           if-no-files-found: ignore
+      - name: "Sigrid pull request feedback"
+        uses: mshick/add-pr-comment@v2
+        if: always()
+        with:
+          message-id: sigrid
+          message-path: sigrid-ci-output/feedback.md
+  sigridci_docker:
+    name: "Sigrid CI in Docker"
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'Software-Improvement-Group'
+    steps:
+      - name: "Check out repository"
+        uses: actions/checkout@v4
+      - name: "Special case: We use Sigrid CI on itself, so if we want its own code to be analyzed we need a copy"
+        run: "cp -r sigridci/sigridci src && cp sigridci/*.py src"
+      - name: "Run Sigrid CI in Docker"
+        uses: ./
+        id: dockertest
+        with:
+          customer: "sig"
+          system: "sigridci-client"
+        env:
+          SIGRID_CI_TOKEN: "${{ secrets.SIGRID_CI_TOKEN }}"

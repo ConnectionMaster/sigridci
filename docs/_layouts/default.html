@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title>Sigrid documentation</title>
+        <meta name="viewport" content="initial-scale=1.0, width=device-width, user-scalable=no">
+        <link rel="shortcut icon" type="image/x-icon" href="/images/favicon.png" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,700;1,400&display=swap" />
+        <style>
+            {% include stylesheet.css %}
+        </style>
+        
+        <script src="https://unpkg.com/lunr/lunr.js"></script>
+        <script src="https://unpkg.com/awesomplete/awesomplete.js"></script>
+    </head>
+    
+    <body>
+        <div class="container">
+            {% include menu.html %}
+            <article>
+                {{ content }}
+            </article>
+        </div>
+        
+        <script>
+            {% include accordion-menu.js %}
+            {% include section-links.js %}
+            {% include stats.js %}
+            {% include search.js %}
+        </script>
+    </body>
+</html>

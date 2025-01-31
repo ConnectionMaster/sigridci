@@ -12,21 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import tempfile
-import unittest
-from sigridci.sigridci import JUnitFormatReport, TargetQuality
+from unittest import TestCase
+
+from sigridci.sigridci.publish_options import PublishOptions, RunMode
+from sigridci.sigridci.reports.junit_format_report import JUnitFormatReport
 
 
-class JUnitReportTest(unittest.TestCase):
+class JUnitReportTest(TestCase):
     maxDiff = None
 
+    def setUp(self):
+        self.options = PublishOptions("aap", "noot", RunMode.FEEDBACK_ONLY, "/tmp", targetRating=3.5)
+
     def testCreateXmlFileInJUnitFormat(self):
-        tempDir = tempfile.mkdtemp()
-        
         feedback = {
+            "baselineRatings": {
+                "MAINTAINABILITY": 1.6,
+            },
+            "changedCodeBeforeRatings": {
+                "MAINTAINABILITY": 1.6,
+            },
             "newCodeRatings": {
-                "MAINTAINABILITY" : 2.0,
+                "MAINTAINABILITY" : 1.2,
                 "DUPLICATION" : 2.0,
                 "UNIT_SIZE" : 4.0,
                 "UNIT_COMPLEXITY" : 3.0
@@ -38,10 +45,8 @@ class JUnitReportTest(unittest.TestCase):
             ]
         }
         
-        target = TargetQuality(f"{tempDir}/sigrid.yaml", 3.5)
-    
         report = JUnitFormatReport()
-        xml = report.generateXML(feedback, target)
+        xml = report.generateXML(feedback, self.options)
             
         expected = """
             <?xml version="1.0" ?>
@@ -62,9 +67,13 @@ class JUnitReportTest(unittest.TestCase):
         self.assertEqual(xml.strip().replace("    ", ""), expected.strip().replace("    ", ""))
         
     def testDoNotMarkAnyTestCasesFailedIfOverallRatingIsOK(self):
-        tempDir = tempfile.mkdtemp()
-        
         feedback = {
+            "baselineRatings": {
+                "MAINTAINABILITY": 1.6,
+            },
+            "changedCodeBeforeRatings": {
+                "MAINTAINABILITY": 1.6,
+            },
             "newCodeRatings": {
                 "MAINTAINABILITY" : 4.0,
                 "DUPLICATION" : 2.0
@@ -72,7 +81,7 @@ class JUnitReportTest(unittest.TestCase):
         }
         
         report = JUnitFormatReport()
-        xml = report.generateXML(feedback, TargetQuality(f"{tempDir}/sigrid.yaml", 3.5))
+        xml = report.generateXML(feedback, self.options)
             
         expected = """
             <?xml version="1.0" ?>
@@ -82,64 +91,28 @@ class JUnitReportTest(unittest.TestCase):
         """
         
         self.assertEqual(xml.strip().replace("    ", ""), expected.strip().replace("    ", ""))
-        
-    def testOnlyReportRelevantSystemPropertiesIfOnlyMetricSpecificTargetsFail(self):
-        tempDir = tempfile.mkdtemp()
-        
-        target = TargetQuality(f"{tempDir}/sigrid.yaml", 3.5)
-        target.ratings["UNIT_SIZE"] = 3.0
-        target.ratings["UNIT_COMPLEXITY"] = 5.0
-
-        feedback = {
-            "newCodeRatings": {
-                "MAINTAINABILITY" : 4.0,
-                "UNIT_SIZE" : 4.0,
-                "UNIT_COMPLEXITY" : 4.0
-            },
-            "refactoringCandidates": [
-                { "subject" : "Aap.java", "metric" : "UNIT_SIZE", "category" : "introduced" },
-                { "subject" : "Noot.java", "metric" : "UNIT_COMPLEXITY", "category" : "introduced" }
-            ]
-        }
-        
-        report = JUnitFormatReport()
-        xml = report.generateXML(feedback, target)
-            
-        expected = """
-            <?xml version="1.0" ?>
-            <testsuite name="Sigrid CI">
-                <testcase classname="Sigrid CI" name="Maintainability">
-                    <failure>Refactoring candidates:
-                    
-- Noot.java
-  (Unit Complexity, introduced)</failure>
-                </testcase>
-            </testsuite>
-        """
-        
-        self.assertEqual(xml.strip().replace("    ", ""), expected.strip().replace("    ", ""))
 
     def testReportAllSystemPropertiesIfMaintainabilityFailsEvenIfMetricSpecificTargetsFail(self):
-        tempDir = tempfile.mkdtemp()
-
-        target = TargetQuality(f"{tempDir}/sigrid.yaml", 3.5)
-        target.ratings["UNIT_SIZE"] = 3.0
-        target.ratings["UNIT_COMPLEXITY"] = 5.0
-
         feedback = {
+            "baselineRatings": {
+                "MAINTAINABILITY": 1.6,
+            },
+            "changedCodeBeforeRatings": {
+                "MAINTAINABILITY": 1.6,
+            },
             "newCodeRatings": {
-                "MAINTAINABILITY" : 3.0,
+                "MAINTAINABILITY" : 1.3,
                 "UNIT_SIZE" : 4.0,
                 "UNIT_COMPLEXITY" : 4.0
             },
             "refactoringCandidates": [
-                { "subject" : "Aap.java", "metric" : "UNIT_SIZE", "category" : "introduced" },
-                { "subject" : "Noot.java", "metric" : "UNIT_COMPLEXITY", "category" : "introduced" }
+                {"subject" : "Aap.java", "metric" : "UNIT_SIZE", "category" : "introduced"},
+                {"subject" : "Noot.java", "metric" : "UNIT_COMPLEXITY", "category" : "introduced"}
             ]
         }
 
         report = JUnitFormatReport()
-        xml = report.generateXML(feedback, target)
+        xml = report.generateXML(feedback, self.options)
 
         expected = """
             <?xml version="1.0" ?>
